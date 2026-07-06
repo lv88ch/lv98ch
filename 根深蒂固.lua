@@ -10,6 +10,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = game:GetService("Players").LocalPlayer
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 
 local function GetCurrentTool()
@@ -32,7 +33,7 @@ local function GetToolStats(tool)
     local fireDelay = tool:FindFirstChild("FireDelay")
     
     local ammoValue = ammoCapacity and ammoCapacity.Value or 5
-    local fireValue = fireDelay and fireDelay.Value or 0.1 
+    local fireValue = 0.001
     
     return ammoValue, fireValue
 end
@@ -91,6 +92,8 @@ local function HasCover(startPos, endPos)
 end
 
 
+local targetData = {}
+
 local function GetBestEnemy()
     local character = LocalPlayer.Character
     if not character then return nil, nil, nil end
@@ -102,6 +105,7 @@ local function GetBestEnemy()
     local bestTarget = nil
     local bestDistance = 150
     local bestPos = nil
+    local bestVelocity = nil
     
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -134,21 +138,138 @@ local function GetBestEnemy()
                 bestDistance = distance
                 bestTarget = player
                 bestPos = head.Position
+                bestVelocity = head.Velocity
             end
         end
     end
     
-    return bestTarget, bestPos, bestDistance
+    return bestTarget, bestPos, bestDistance, bestVelocity
 end
 
 local function GetTargetPositions()
-    local target, targetPos, distance = GetBestEnemy()
+    local target, targetPos, distance, velocity = GetBestEnemy()
     
     if target and targetPos then
-        return targetPos, targetPos + Vector3.new(0, 0.3, 0), true
+        local predictTime = distance / 2000
+        local predictedPos = targetPos + (velocity * predictTime)
+        return predictedPos, predictedPos + Vector3.new(0, 0.3, 0), true
     end
     
     return nil, nil, false
+end
+
+
+local function CreateBulletTrail(startPos, endPos)
+    local trail = Instance.new("Part")
+    trail.Name = "BulletTrail"
+    trail.Anchored = true
+    trail.CanCollide = false
+    trail.CanQuery = false
+    trail.CanTouch = false
+    trail.Material = Enum.Material.Neon
+    trail.Size = Vector3.new(0.3, 0.3, (startPos - endPos).Magnitude)
+    trail.CFrame = CFrame.lookAt(startPos, endPos) * CFrame.new(0, 0, -(startPos - endPos).Magnitude / 2)
+    trail.BrickColor = BrickColor.new("Bright blue")
+    trail.Transparency = 0.2
+    
+    local attachment1 = Instance.new("Attachment")
+    attachment1.Parent = trail
+    attachment1.Position = Vector3.new(0, 0, trail.Size.Z / 2)
+    
+    local attachment2 = Instance.new("Attachment")
+    attachment2.Parent = trail
+    attachment2.Position = Vector3.new(0, 0, -trail.Size.Z / 2)
+    
+    local beam = Instance.new("Beam")
+    beam.Parent = trail
+    beam.Attachment0 = attachment1
+    beam.Attachment1 = attachment2
+    beam.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 150, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(100, 200, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 100, 255))
+    })
+    beam.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.3),
+        NumberSequenceKeypoint.new(0.5, 0.1),
+        NumberSequenceKeypoint.new(1, 0.3)
+    })
+    beam.Width0 = 0.8
+    beam.Width1 = 0.8
+    beam.LightEmission = 1
+    beam.LightInfluence = 1
+    
+    trail.Parent = workspace.CurrentCamera
+    
+    local glow = Instance.new("Part")
+    glow.Name = "Glow"
+    glow.Anchored = true
+    glow.CanCollide = false
+    glow.CanQuery = false
+    glow.CanTouch = false
+    glow.Material = Enum.Material.Neon
+    glow.Size = Vector3.new(2, 2, 2)
+    glow.CFrame = CFrame.new((startPos + endPos) / 2)
+    glow.BrickColor = BrickColor.new("Bright blue")
+    glow.Transparency = 0.5
+    glow.Parent = trail
+    
+    game:GetService("Debris"):AddItem(trail, 0.3)
+    game:GetService("Debris"):AddItem(glow, 0.3)
+    
+    spawn(function()
+        for i = 1, 10 do
+            trail.Transparency = trail.Transparency + 0.08
+            glow.Transparency = glow.Transparency + 0.08
+            trail.Size = trail.Size * 0.95
+            wait(0.03)
+        end
+        trail:Destroy()
+    end)
+end
+
+
+local function RainbowCharacter()
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Material = Enum.Material.Neon
+            part.Transparency = 0.3
+        end
+    end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+        humanoid.AutoRotate = true
+    end
+    
+    spawn(function()
+        local hue = 0
+        while character and character.Parent do
+            hue = (hue + 0.01) % 1
+            local color = Color3.fromHSV(hue, 1, 1)
+            
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.BrickColor = BrickColor.new(color)
+                end
+            end
+            
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                rootPart.BrickColor = BrickColor.new(Color3.fromHSV((hue + 0.5) % 1, 1, 1))
+            end
+            
+            wait(0.05)
+        end
+    end)
 end
 
 
@@ -181,6 +302,12 @@ local function FireShootEvent()
     end
     
     local ammoCapacity, fireDelay = GetToolStats(tool)
+    
+    local camera = workspace.CurrentCamera
+    if camera then
+        local origin = camera.CFrame.Position
+        CreateBulletTrail(origin, pos1)
+    end
     
     Event:FireServer(
         {
@@ -244,21 +371,21 @@ local function FireShootEvent()
                     ammoCapacity,
                     fireDelay,
                     -1,
-                    0.77,
-                    -0.1
+                    0,
+                    -0
                 },
                 {
                     ammoCapacity,
                     fireDelay,
                     -1,
-                    0.77,
-                    -0.66666666666667
+                    0,
+                    0
                 },
                 {
                     ammoCapacity,
                     fireDelay,
-                    0.77,
-                    0.66666666666667
+                    0,
+                    0
                 }
             },
             Cycle = true,
@@ -279,6 +406,10 @@ local function FireShootEvent()
         pos2
     )
 end
+
+spawn(function()
+    RainbowCharacter()
+end)
 
 while wait(0.05) do
     pcall(function()
