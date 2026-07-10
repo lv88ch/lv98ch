@@ -137,10 +137,7 @@ local isActive = false
 local currentTarget = nil
 local targetName = nil
 local currentWeaponName = nil
-local currentAmmoType = nil
 local shootingCoroutine = nil
-
-local allAmmoTypes = {"PistolAmmo", "RifleAmmo", "ShotgunAmmo", "SniperAmmo"}
 
 local function GetCurrentWeapon()
     local char = LocalPlayer.Character
@@ -153,10 +150,19 @@ local function GetCurrentWeapon()
     return tool
 end
 
-local function GetAmmo(ammoType)
+local function GetAllAmmo()
     local consumables = LocalPlayer:FindFirstChild("Consumables")
-    if not consumables then return nil end
-    return consumables:FindFirstChild(ammoType)
+    if not consumables then return {} end
+    
+    local ammoList = {}
+    local ammoTypes = {"PistolAmmo", "RifleAmmo", "ShotgunAmmo", "SniperAmmo"}
+    for _, ammoType in ipairs(ammoTypes) do
+        local ammo = consumables:FindFirstChild(ammoType)
+        if ammo then
+            table.insert(ammoList, ammo)
+        end
+    end
+    return ammoList
 end
 
 local function CreateBeam(startPos, endPos)
@@ -303,6 +309,13 @@ local function ShootOnce()
     currentWeaponName = tool.Name
     WeaponLabel.Text = "武器: " .. currentWeaponName
     
+    -- 获取所有弹药
+    local allAmmo = GetAllAmmo()
+    if #allAmmo == 0 then
+        StatusLabel.Text = "无弹药"
+        return false
+    end
+    
     local hitPos = targetHead.Position
     local cf = CFrame.lookAt(myHead.Position, hitPos)
     
@@ -327,67 +340,53 @@ local function ShootOnce()
     local toolModel = Workspace:FindFirstChild(myName)
     local toolPart = toolModel and toolModel:FindFirstChild(tool.Name)
     
-    -- 判断当前使用的弹药类型
-    local currentAmmoType = "PistolAmmo"
-    for _, ammoType in ipairs(allAmmoTypes) do
-        if GetAmmo(ammoType) then
-            currentAmmoType = ammoType
-            break
-        end
-    end
-    
-    local currentAmmo = GetAmmo(currentAmmoType)
-    AmmoLabel.Text = "弹药: " .. currentAmmoType
-    
-    local gunArgs = {
-        [1] = {
-            ["HitPart"] = targetHead,
-            ["EndPoint"] = hitPos,
-            ["HitCallback"] = "Bullet",
-            ["BulletOwner"] = LocalPlayer,
-            ["Lifetime"] = 1,
-            ["Speed"] = 80,
-            ["cframe"] = cf,
-            ["Tool"] = toolPart or tool,
-            ["Normal"] = (myHead.Position - hitPos).Unit,
-            ["StartTime"] = tick(),
-            ["HitPosition"] = hitPos,
-            ["AmmoType"] = currentAmmoType,
-            ["Material"] = Enum.Material.SmoothPlastic,
-            ["PlayerRootPos"] = myRoot.Position,
-            ["HitHum"] = targetHum,
-            ["ToolName"] = tool.Name,
-            ["StartPoint"] = cf,
-            ["MaxDistance"] = 1000,
-            ["Shot"] = shot,
-            ["ShotID"] = math.random(100000, 9999999),
-            ["FirstFrame"] = true,
-            ["GunType"] = "Pistol",
-            ["Delay"] = 0.1415705680847168,
-            ["RootPosition"] = targetRoot.Position
+    -- 依次扣除所有类型的弹药
+    for _, ammo in ipairs(allAmmo) do
+        local ammoType = ammo.Name
+        local gunArgs = {
+            [1] = {
+                ["HitPart"] = targetHead,
+                ["EndPoint"] = hitPos,
+                ["HitCallback"] = "Bullet",
+                ["BulletOwner"] = LocalPlayer,
+                ["Lifetime"] = 1,
+                ["Speed"] = 80,
+                ["cframe"] = cf,
+                ["Tool"] = toolPart or tool,
+                ["Normal"] = (myHead.Position - hitPos).Unit,
+                ["StartTime"] = tick(),
+                ["HitPosition"] = hitPos,
+                ["AmmoType"] = ammoType,
+                ["Material"] = Enum.Material.SmoothPlastic,
+                ["PlayerRootPos"] = myRoot.Position,
+                ["HitHum"] = targetHum,
+                ["ToolName"] = tool.Name,
+                ["StartPoint"] = cf,
+                ["MaxDistance"] = 1000,
+                ["Shot"] = shot,
+                ["ShotID"] = math.random(100000, 9999999),
+                ["FirstFrame"] = true,
+                ["GunType"] = "Pistol",
+                ["Delay"] = 0.1415705680847168,
+                ["RootPosition"] = targetRoot.Position
+            }
         }
-    }
-    
-    local ammoArgs = {[1] = currentAmmo}
-    
-    -- 扣除所有类型的子弹
-    for _, ammoType in ipairs(allAmmoTypes) do
-        local ammo = GetAmmo(ammoType)
-        if ammo then
-            pcall(function()
-                useAmmoEvent:FireServer(ammo)
-            end)
-        end
+        
+        local ammoArgs = {[1] = ammo}
+        
+        pcall(function()
+            gunShotEvent:FireServer(unpack(gunArgs))
+        end)
+        pcall(function()
+            useAmmoEvent:FireServer(unpack(ammoArgs))
+        end)
     end
-    
-    pcall(function()
-        gunShotEvent:FireServer(unpack(gunArgs))
-    end)
     
     pcall(function()
         HitSound:Play()
     end)
     
+    StatusLabel.Text = "杀戮中 " .. currentTarget.Name .. " (扣4种弹)"
     return true
 end
 
@@ -415,8 +414,6 @@ local function ShootingLoop()
         local success = ShootOnce()
         if not success then
             StatusLabel.Text = "等待"
-        else
-            StatusLabel.Text = "杀戮中 " .. currentTarget.Name
         end
         
         task.wait(0.08)
@@ -480,6 +477,17 @@ task.spawn(function()
         if tool then
             currentWeaponName = tool.Name
             WeaponLabel.Text = "武器: " .. currentWeaponName
+            local ammoList = GetAllAmmo()
+            if #ammoList > 0 then
+                local ammoStr = ""
+                for i, ammo in ipairs(ammoList) do
+                    ammoStr = ammoStr .. ammo.Name
+                    if i < #ammoList then ammoStr = ammoStr .. " " end
+                end
+                AmmoLabel.Text = "弹药: " .. ammoStr
+            else
+                AmmoLabel.Text = "弹药: 无"
+            end
         else
             WeaponLabel.Text = "武器: 无"
             AmmoLabel.Text = "弹药: 无"

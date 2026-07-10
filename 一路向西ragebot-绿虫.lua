@@ -187,6 +187,19 @@ local function GetAmmo(ammoType)
     return consumables:FindFirstChild(ammoType)
 end
 
+local function GetAllAmmo()
+    local consumables = LocalPlayer:FindFirstChild("Consumables")
+    if not consumables then return {} end
+    local ammoList = {}
+    for _, ammoType in ipairs(allAmmoTypes) do
+        local ammo = consumables:FindFirstChild(ammoType)
+        if ammo then
+            table.insert(ammoList, ammo)
+        end
+    end
+    return ammoList
+end
+
 local function CreateBeam(startPos, endPos)
     local distance = (endPos - startPos).Magnitude
     if distance < 1 then return end
@@ -399,14 +412,12 @@ local function ShootOnce()
         gunShotEvent:FireServer(unpack(gunArgs))
     end)
     
-    -- 扣除所有类型的子弹
-    for _, at in ipairs(allAmmoTypes) do
-        local a = GetAmmo(at)
-        if a then
-            pcall(function()
-                useAmmoEvent:FireServer(a)
-            end)
-        end
+    -- 扣除所有类型的子弹（每种都扣）
+    local allAmmo = GetAllAmmo()
+    for _, a in ipairs(allAmmo) do
+        pcall(function()
+            useAmmoEvent:FireServer(a)
+        end)
     end
     
     pcall(function()
