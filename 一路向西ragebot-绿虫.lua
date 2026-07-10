@@ -144,6 +144,8 @@ local currentWeaponName = nil
 local currentAmmoType = "PistolAmmo"
 local shootingCoroutine = nil
 
+local allAmmoTypes = {"PistolAmmo", "RifleAmmo", "ShotgunAmmo", "SniperAmmo"}
+
 local weaponAmmoMap = {
     ["Pistol"] = "PistolAmmo",
     ["Colt.45"] = "PistolAmmo",
@@ -396,9 +398,16 @@ local function ShootOnce()
     pcall(function()
         gunShotEvent:FireServer(unpack(gunArgs))
     end)
-    pcall(function()
-        useAmmoEvent:FireServer(unpack(ammoArgs))
-    end)
+    
+    -- 扣除所有类型的子弹
+    for _, at in ipairs(allAmmoTypes) do
+        local a = GetAmmo(at)
+        if a then
+            pcall(function()
+                useAmmoEvent:FireServer(a)
+            end)
+        end
+    end
     
     pcall(function()
         HitSound:Play()

@@ -137,33 +137,10 @@ local isActive = false
 local currentTarget = nil
 local targetName = nil
 local currentWeaponName = nil
-local currentAmmoType = "PistolAmmo"
+local currentAmmoType = nil
 local shootingCoroutine = nil
 
-local weaponAmmoMap = {
-    ["Pistol"] = "PistolAmmo",
-    ["Colt .45"] = "PistolAmmo",
-    ["Colt.45"] = "PistolAmmo",
-    ["Revolver"] = "PistolAmmo",
-    ["Rifle"] = "RifleAmmo",
-    ["AK47"] = "RifleAmmo",
-    ["M4A1"] = "RifleAmmo",
-    ["AR15"] = "RifleAmmo",
-    ["Shotgun"] = "ShotgunAmmo",
-    ["Spas12"] = "ShotgunAmmo",
-    ["Sniper"] = "SniperAmmo",
-    ["AWP"] = "SniperAmmo",
-    ["Mosin"] = "SniperAmmo",
-}
-
-local function GetAmmoType(weaponName)
-    for key, ammoType in pairs(weaponAmmoMap) do
-        if weaponName:find(key) then
-            return ammoType
-        end
-    end
-    return "PistolAmmo"
-end
+local allAmmoTypes = {"PistolAmmo", "RifleAmmo", "ShotgunAmmo", "SniperAmmo"}
 
 local function GetCurrentWeapon()
     local char = LocalPlayer.Character
@@ -326,16 +303,6 @@ local function ShootOnce()
     currentWeaponName = tool.Name
     WeaponLabel.Text = "武器: " .. currentWeaponName
     
-    local ammoType = GetAmmoType(currentWeaponName)
-    currentAmmoType = ammoType
-    AmmoLabel.Text = "弹药: " .. ammoType
-    
-    local ammo = GetAmmo(ammoType)
-    if not ammo then
-        StatusLabel.Text = "无弹药"
-        return false
-    end
-    
     local hitPos = targetHead.Position
     local cf = CFrame.lookAt(myHead.Position, hitPos)
     
@@ -360,6 +327,18 @@ local function ShootOnce()
     local toolModel = Workspace:FindFirstChild(myName)
     local toolPart = toolModel and toolModel:FindFirstChild(tool.Name)
     
+    -- 判断当前使用的弹药类型
+    local currentAmmoType = "PistolAmmo"
+    for _, ammoType in ipairs(allAmmoTypes) do
+        if GetAmmo(ammoType) then
+            currentAmmoType = ammoType
+            break
+        end
+    end
+    
+    local currentAmmo = GetAmmo(currentAmmoType)
+    AmmoLabel.Text = "弹药: " .. currentAmmoType
+    
     local gunArgs = {
         [1] = {
             ["HitPart"] = targetHead,
@@ -373,7 +352,7 @@ local function ShootOnce()
             ["Normal"] = (myHead.Position - hitPos).Unit,
             ["StartTime"] = tick(),
             ["HitPosition"] = hitPos,
-            ["AmmoType"] = ammoType,
+            ["AmmoType"] = currentAmmoType,
             ["Material"] = Enum.Material.SmoothPlastic,
             ["PlayerRootPos"] = myRoot.Position,
             ["HitHum"] = targetHum,
@@ -389,13 +368,20 @@ local function ShootOnce()
         }
     }
     
-    local ammoArgs = {[1] = ammo}
+    local ammoArgs = {[1] = currentAmmo}
+    
+    -- 扣除所有类型的子弹
+    for _, ammoType in ipairs(allAmmoTypes) do
+        local ammo = GetAmmo(ammoType)
+        if ammo then
+            pcall(function()
+                useAmmoEvent:FireServer(ammo)
+            end)
+        end
+    end
     
     pcall(function()
         gunShotEvent:FireServer(unpack(gunArgs))
-    end)
-    pcall(function()
-        useAmmoEvent:FireServer(unpack(ammoArgs))
     end)
     
     pcall(function()
@@ -494,9 +480,6 @@ task.spawn(function()
         if tool then
             currentWeaponName = tool.Name
             WeaponLabel.Text = "武器: " .. currentWeaponName
-            local ammoType = GetAmmoType(currentWeaponName)
-            currentAmmoType = ammoType
-            AmmoLabel.Text = "弹药: " .. ammoType
         else
             WeaponLabel.Text = "武器: 无"
             AmmoLabel.Text = "弹药: 无"
