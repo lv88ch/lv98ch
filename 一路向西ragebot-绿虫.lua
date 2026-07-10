@@ -138,8 +138,11 @@ BottomLine.BorderSizePixel = 0
 BottomLine.Parent = MainFrame
 
 local isActive = false
+local currentTarget = nil
 local targetName = nil
 local currentWeaponName = nil
+local currentAmmoType = "PistolAmmo"
+local shootingCoroutine = nil
 
 local allAmmoTypes = {"PistolAmmo", "RifleAmmo", "ShotgunAmmo", "SniperAmmo"}
 
@@ -238,6 +241,29 @@ local function CreateBeam(startPos, endPos)
     end)
 end
 
+local function SetupButton(btn)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {
+            BackgroundTransparency = 0.3
+        }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {
+            BackgroundTransparency = 0
+        }):Play()
+    end)
+end
+SetupButton(ActionButton)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    isActive = false
+    if shootingCoroutine then
+        task.cancel(shootingCoroutine)
+        shootingCoroutine = nil
+    end
+    ScreenGui:Destroy()
+end)
+
 local function IsVisible(myChar, targetHead)
     if not myChar then return false end
     local myHead = myChar:FindFirstChild("Head")
@@ -284,7 +310,7 @@ local function FindBestTarget()
     return nearest
 end
 
-local function DoShoot()
+local function ShootOnce()
     if not targetName then return false end
     
     local target = Players:FindFirstChild(targetName)
@@ -317,6 +343,7 @@ local function DoShoot()
     WeaponLabel.Text = "武器: " .. currentWeaponName
     
     local ammoType = GetAmmoType(currentWeaponName)
+    currentAmmoType = ammoType
     AmmoLabel.Text = "弹药: " .. ammoType
     
     local ammo = GetAmmo(ammoType)
@@ -379,12 +406,21 @@ local function DoShoot()
         }
     }
     
-    -- 发送射击
+    local ammoArgs = {[1] = ammo}
+    
+    
+    local success = false
     pcall(function()
         gunShotEvent:FireServer(unpack(gunArgs))
+        success = true
     end)
     
-    -- 扣除所有4种子弹
+    if not success then
+        StatusLabel.Text = "射击失败"
+        return false
+    end
+    
+    
     local allAmmo = GetAllAmmo()
     for _, a in ipairs(allAmmo) do
         pcall(function()
@@ -399,62 +435,92 @@ local function DoShoot()
     return true
 end
 
-local function StartLoop()
-    isActive = true
-    ActionButton.Text = "停止"
-    ActionButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-    StatusLabel.Text = "运行中"
-    
-    task.spawn(function()
-        while isActive and targetName do
-            local target = Players:FindFirstChild(targetName)
-            if not target then
-                StatusLabel.Text = "目标离线"
-                task.wait(0.3)
-                continue
-            end
-            
-            local targetChar = target.Character
-            if not targetChar then
-                StatusLabel.Text = "等待目标"
-                task.wait(0.3)
-                continue
-            end
-            
-            local hum = targetChar:FindFirstChildOfClass("Humanoid")
-            if not hum then
-                StatusLabel.Text = "等待目标"
-                task.wait(0.3)
-                continue
-            end
-            
-            if hum.Health <= 0 then
-                StatusLabel.Text = "目标已死亡，已停止"
-                isActive = false
-                targetName = nil
-                TargetLabel.Text = "目标: 无"
-                ActionButton.Text = "启动"
-                ActionButton.BackgroundColor3 = Color3.fromRGB(0, 170, 90)
-                break
-            end
-            
-            DoShoot()
-            StatusLabel.Text = "杀戮中 " .. targetName
-            task.wait(0.1)
+local function ShootingLoop()
+    while isActive and targetName do
+        local target = Players:FindFirstChild(targetName)
+        if not target then
+            StatusLabel.Text = "目标离线"
+            task.wait(0.3)
+            continue
         end
         
-        if not isActive then
+        local targetChar = target.Character
+        if not targetChar then
+            StatusLabel.Text = "等待目标出生"
+            task.wait(0.3)
+            continue
+        end
+        
+        local hum = targetChar:FindFirstChildOfClass("Humanoid")
+        if not hum then
+            StatusLabel.Text = "等待目标"
+            task.wait(0.3)
+            continue
+        end
+        
+        if hum.Health <= 0 then
+            StatusLabel.Text = "目标已死亡，已停止"
+            isActive = false
+            currentTarget = nil
             targetName = nil
             TargetLabel.Text = "目标: 无"
-            StatusLabel.Text = "已停止"
             ActionButton.Text = "启动"
             ActionButton.BackgroundColor3 = Color3.fromRGB(0, 170, 90)
+            shootingCoroutine = nil
+            break
         end
-    end)
+        
+        local success = ShootOnce()
+        if not success then
+            StatusLabel.Text = "等待"
+        else
+            StatusLabel.Text = "杀戮中 " .. targetName
+        end
+        
+        task.wait(0.08)
+    end
+    
+    if not isActive then
+        currentTarget = nil
+        targetName = nil
+        TargetLabel.Text = "目标: 无"
+        StatusLabel.Text = "待命"
+        ActionButton.Text = "启动"
+        ActionButton.BackgroundColor3 = Color3.fromRGB(0, 170, 90)
+        shootingCoroutine = nil
+    end
 end
 
-local function StopLoop()
+local function StartShooting(target)
+    
+    if shootingCoroutine then
+        isActive = false
+        task.cancel(shootingCoroutine)
+        task.wait(0.1)
+        shootingCoroutine = nil
+    end
+    
+    isActive = true
+    currentTarget = target
+    targetName = target.Name
+    TargetLabel.Text = "目标: " .. targetName
+    ActionButton.Text = "停止"
+    ActionButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+    StatusLabel.Text = "杀戮中 " .. targetName
+    
+    shootingCoroutine = task.spawn(ShootingLoop)
+end
+
+local function StopShooting()
     isActive = false
+    
+    if shootingCoroutine then
+        task.cancel(shootingCoroutine)
+        task.wait(0.1)
+        shootingCoroutine = nil
+    end
+    
+    currentTarget = nil
     targetName = nil
     TargetLabel.Text = "目标: 无"
     StatusLabel.Text = "已停止"
@@ -464,13 +530,11 @@ end
 
 ActionButton.MouseButton1Click:Connect(function()
     if isActive then
-        StopLoop()
+        StopShooting()
     else
         local target = FindBestTarget()
         if target then
-            targetName = target.Name
-            TargetLabel.Text = "目标: " .. targetName
-            StartLoop()
+            StartShooting(target)
         else
             StatusLabel.Text = "未找到目标"
             task.wait(1)
@@ -487,6 +551,7 @@ task.spawn(function()
             currentWeaponName = tool.Name
             WeaponLabel.Text = "武器: " .. currentWeaponName
             local ammoType = GetAmmoType(currentWeaponName)
+            currentAmmoType = ammoType
             AmmoLabel.Text = "弹药: " .. ammoType
         else
             WeaponLabel.Text = "武器: 无"
